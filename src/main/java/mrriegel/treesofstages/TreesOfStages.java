@@ -3,6 +3,7 @@ package mrriegel.treesofstages;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -148,7 +149,7 @@ public class TreesOfStages {
 		}
 	}
 
-	private static class PseudoWorld extends World {
+	public static class PseudoWorld extends World {
 		private Object2ObjectMap<BlockPos, IBlockState> map = new Object2ObjectOpenHashMap<BlockPos, IBlockState>();
 		public World world;
 		private boolean safeTree;
@@ -229,6 +230,15 @@ public class TreesOfStages {
 			if (mid.getY() < this.start.getY())
 				Collections.reverse(wood);
 			leaves.sort((p1, p2) -> Double.compare(p1.getKey().getDistance(firstWood.getX(), firstWood.getY(), firstWood.getZ()), p2.getKey().getDistance(firstWood.getX(), firstWood.getY(), firstWood.getZ())));
+			Comparator<Pair<BlockPos, IBlockState>> comp = (p1, p2) -> {
+				int a = Integer.compare(p1.getKey().getY(), p2.getKey().getY());
+				if (a != 0)
+					return a;
+				return Double.compare(p1.getKey().getDistance(start.getX(), start.getY(), start.getZ()), p2.getKey().getDistance(start.getX(), start.getY(), start.getZ()));
+			};
+			//			wood.addAll(leaves);
+			//			leaves.clear();
+			//			wood.sort(comp);
 		}
 
 		public boolean isEmpty() {
