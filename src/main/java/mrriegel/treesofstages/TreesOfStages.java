@@ -2,6 +2,7 @@ package mrriegel.treesofstages;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -20,11 +21,10 @@ import net.minecraft.block.BlockSapling;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
-import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.IChunkProvider;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
@@ -52,11 +52,13 @@ public class TreesOfStages {
 
 	private static Configuration config;
 	private static int growthSpeed;
+	public static Set<String> blacklistMods;
 
 	@EventHandler
 	public void preInit(FMLPreInitializationEvent event) {
 		config = new Configuration(event.getSuggestedConfigurationFile());
 		growthSpeed = config.getInt("growthSpeed", Configuration.CATEGORY_GENERAL, 5, 1, 1000, "The lower the faster");
+		blacklistMods = new HashSet<>(Arrays.asList(config.getStringList("blacklistMods", Configuration.CATEGORY_GENERAL, new String[0], "Mod IDs from saplings that will grow instantaneously")));
 	}
 
 	@EventHandler
@@ -107,31 +109,29 @@ public class TreesOfStages {
 				}
 			}
 		}
+	}
 
+	private Runnable get(SaplingGrowTreeEvent event) {
+		PseudoWorld ws = pseudoWorldMap.get(event.getWorld().provider.getDimension());
+		IBlockState sapling = event.getWorld().getBlockState(event.getPos());
+		if (sapling.getBlock() instanceof BlockSapling) {
+			return () -> ((BlockSapling) sapling.getBlock()).generateTree(ws, event.getPos(), sapling, event.getWorld().rand);
+		}
+		return null;
 	}
 
 	@SubscribeEvent
 	public void tryy(SaplingGrowTreeEvent event) {
 		if (!(event.getWorld() instanceof PseudoWorld)) {
+			Runnable run = get(event);
+			if (run == null)
+				return;
 			PseudoWorld ws = pseudoWorldMap.get(event.getWorld().provider.getDimension());
-			if (!true) {
-				Chunk c = event.getWorld().getChunkFromBlockCoords(event.getPos());
-				Iterable<BlockPos> i = BlockPos.getAllInBox(new ChunkPos(c.x - 1, c.z - 1).getXStart(), 0, new ChunkPos(c.x - 1, c.z - 1).getZStart(), new ChunkPos(c.x + 1, c.z + 1).getXEnd(), event.getWorld().getActualHeight(), new ChunkPos(c.x + 1, c.z + 1).getZEnd());
-				for (BlockPos p : i)
-					ws.setBlockState(p, event.getWorld().getBlockState(p));
-			} else {
-				Set<Chunk> chunks = new HashSet<Chunk>();
-				chunks.add(event.getWorld().getChunkFromBlockCoords(event.getPos()));
-				chunks.add(event.getWorld().getChunkFromBlockCoords(event.getPos().north(9)));
-				chunks.add(event.getWorld().getChunkFromBlockCoords(event.getPos().east(9)));
-				chunks.add(event.getWorld().getChunkFromBlockCoords(event.getPos().south(9)));
-				chunks.add(event.getWorld().getChunkFromBlockCoords(event.getPos().west(9)));
-				for (Chunk c : chunks) {
-					ChunkPos cp = new ChunkPos(c.x, c.z);
-					for (BlockPos p : BlockPos.getAllInBox(cp.getXStart(), 0, cp.getZStart(), cp.getXEnd(), event.getWorld().getActualHeight(), cp.getZEnd()))
-						ws.setBlockState(p, event.getWorld().getBlockState(p));
-				}
-			}
+			IBlockState sapling = event.getWorld().getBlockState(event.getPos());
+			if (blacklistMods.contains(sapling.getBlock().getRegistryName().getResourcePath()))
+				return;
+			for (BlockPos p : BlockPos.getAllInBox(event.getPos().getX() - 9, 0, event.getPos().getZ() - 9, event.getPos().getX() + 9, event.getWorld().getActualHeight(), event.getPos().getZ() + 9))
+				ws.setBlockState(p, event.getWorld().getBlockState(p));
 			/*TODO
 			 * forestry
 			 * binnies extra tries
@@ -142,8 +142,7 @@ public class TreesOfStages {
 			 * terraqueos
 			*/
 			ws.startTree(event.getPos());
-			if (event.getWorld().getBlockState(event.getPos()).getBlock() instanceof BlockSapling)
-				((BlockSapling) event.getWorld().getBlockState(event.getPos()).getBlock()).generateTree(ws, event.getPos(), event.getWorld().getBlockState(event.getPos()), event.getWorld().rand);
+			run.run();
 			ws.endTree();
 			event.setResult(Result.DENY);
 		}
@@ -178,6 +177,11 @@ public class TreesOfStages {
 		}
 
 		@Override
+		public TileEntity getTileEntity(BlockPos pos) {
+			return null;
+		}
+
+		@Override
 		public IBlockState getBlockState(BlockPos pos) {
 			return map.get(pos);
 		}
@@ -197,7 +201,8 @@ public class TreesOfStages {
 
 		public void endTree() {
 			safeTree = false;
-			trees.add(new Tree(this, new BlockPos(start)));
+			if (!pairs.isEmpty())
+				trees.add(new Tree(this, new BlockPos(start)));
 			start = null;
 
 		}
