@@ -6,7 +6,6 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -64,12 +63,14 @@ public class TreesOfStages {
 	private static Configuration config;
 	private static int growthSpeed;
 	public static Set<String> blacklistMods;
+	public static boolean sound;
 
 	@EventHandler
 	public void preInit(FMLPreInitializationEvent event) {
 		config = new Configuration(event.getSuggestedConfigurationFile());
 		growthSpeed = config.getInt("growthSpeed", Configuration.CATEGORY_GENERAL, 5, 1, 1000, "The lower the faster");
 		blacklistMods = new HashSet<>(Arrays.asList(config.getStringList("blacklistMods", Configuration.CATEGORY_GENERAL, new String[0], "Mod IDs from saplings that will grow instantaneously")));
+		sound = config.getBoolean("sound", Configuration.CATEGORY_GENERAL, true, "Enable sound when trees grow");
 	}
 
 	@EventHandler
@@ -117,8 +118,10 @@ public class TreesOfStages {
 							TileEntity t = event.world.getTileEntity(pair.getKey());
 							if (t != null)
 								t.readFromNBT(pseudoWorldMap.get(event.world.provider.getDimension()).getTileEntity(pair.getKey()).writeToNBT(new NBTTagCompound()));
-							SoundType soundtype = pair.getValue().getBlock().getSoundType(pair.getValue(), event.world, pair.getKey(), null);
-							event.world.playSound(null, pair.getKey(), soundtype.getPlaceSound(), SoundCategory.BLOCKS, (soundtype.getVolume() + 1.0F) / 3.0F, soundtype.getPitch() * 0.8F);
+							if (sound) {
+								SoundType soundtype = pair.getValue().getBlock().getSoundType(pair.getValue(), event.world, pair.getKey(), null);
+								event.world.playSound(null, pair.getKey(), soundtype.getPlaceSound(), SoundCategory.BLOCKS, (soundtype.getVolume() + 1.0F) / 3.0F, soundtype.getPitch() * 0.8F);
+							}
 							placed = true;
 						} else
 							pair = tree.next();
@@ -153,7 +156,8 @@ public class TreesOfStages {
 		} else if (getClass("forestry.arboriculture.blocks.BlockSapling") == sapling.getBlock().getClass()) {
 			return () -> {
 				try {
-					getClass("forestry.arboriculture.blocks.BlockSapling").getDeclaredMethod("grow", World.class, Random.class, BlockPos.class, IBlockState.class).invoke(sapling.getBlock(), ws, event.getWorld().rand, event.getPos(), sapling);
+					Method m = getClass("forestry.arboriculture.blocks.BlockSapling").getDeclaredMethod("grow", World.class, Random.class, BlockPos.class, IBlockState.class);
+					m.invoke(sapling.getBlock(), ws, event.getWorld().rand, event.getPos(), sapling);
 				} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException e) {
 					e.printStackTrace();
 				}
@@ -161,7 +165,8 @@ public class TreesOfStages {
 		} else if (getClass("biomesoplenty.common.block.BlockBOPSapling") == sapling.getBlock().getClass()) {
 			return () -> {
 				try {
-					getClass("biomesoplenty.common.block.BlockBOPSapling").getDeclaredMethod("generateTree", World.class, BlockPos.class, IBlockState.class, Random.class).invoke(sapling.getBlock(), ws, event.getPos(), sapling, event.getWorld().rand);
+					Method m = getClass("biomesoplenty.common.block.BlockBOPSapling").getDeclaredMethod("generateTree", World.class, BlockPos.class, IBlockState.class, Random.class);
+					m.invoke(sapling.getBlock(), ws, event.getPos(), sapling, event.getWorld().rand);
 				} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException e) {
 					e.printStackTrace();
 				}
@@ -173,6 +178,15 @@ public class TreesOfStages {
 					Method m = getClass("com.pam.harvestcraft.blocks.growables.BlockPamSapling").getDeclaredMethod("grow", World.class, BlockPos.class, IBlockState.class, Random.class);
 					m.setAccessible(true);
 					m.invoke(sapling.getBlock(), ws, event.getPos(), sapling, event.getWorld().rand);
+				} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException e) {
+					e.printStackTrace();
+				}
+			};
+		} else if (getClass("shetiphian.terraqueous.common.block.BlockTreeSapling") == sapling.getBlock().getClass()) {
+			return () -> {
+				try {
+					Method m = getClass("shetiphian.terraqueous.common.block.BlockTreeSapling").getDeclaredMethod("grow", World.class, Random.class, BlockPos.class, IBlockState.class);
+					m.invoke(sapling.getBlock(), ws, event.getWorld().rand, event.getPos(), sapling);
 				} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException e) {
 					e.printStackTrace();
 				}
@@ -198,7 +212,6 @@ public class TreesOfStages {
 			}
 			/*TODO
 			 * binnies extra tries
-			 * terraqueos
 			*/
 			ws.startTree(event.getPos());
 			run.run();
@@ -213,14 +226,14 @@ public class TreesOfStages {
 		public World world;
 		private boolean safeTree;
 		BlockPos start;
-		public Deque<Pair<BlockPos, IBlockState>> pairs = new ArrayDeque<>();
+		public ArrayDeque<Pair<BlockPos, IBlockState>> pairs = new ArrayDeque<>();
 		public List<Tree> trees = new ArrayList<>();
 
 		public PseudoWorld(World world) {
 			super(null, world.getWorldInfo(), world.provider, world.getMinecraftServer().profiler, false);
-			blockMap.defaultReturnValue(Blocks.AIR.getDefaultState());
+			this.blockMap.defaultReturnValue(Blocks.AIR.getDefaultState());
 			this.world = world;
-			mapStorage = new MapStorage(null);
+			this.mapStorage = new MapStorage(null);
 		}
 
 		@Override
@@ -269,10 +282,11 @@ public class TreesOfStages {
 
 		@Override
 		public boolean setBlockState(BlockPos pos, IBlockState newState, int flags) {
-			blockMap.put(pos, newState);
-			setTileEntity(pos, newState.getBlock().createTileEntity(this, newState));
-			if (safeTree && newState.getBlock() != Blocks.AIR && !pairs.stream().anyMatch(p -> p.getKey().equals(pos))) {
-				pairs.add(Pair.of(pos, newState));
+			final BlockPos pos2 = pos.toImmutable();
+			blockMap.put(pos2, newState);
+			setTileEntity(pos2, newState.getBlock().createTileEntity(this, newState));
+			if (safeTree && newState.getBlock() != Blocks.AIR && !pairs.stream().anyMatch(p -> p.getKey().equals(pos2))) {
+				pairs.add(Pair.of(pos2, newState));
 			}
 			return true;
 		}
@@ -305,7 +319,6 @@ public class TreesOfStages {
 		public final Block sapling;
 
 		public Tree(PseudoWorld world, BlockPos start) {
-			this.totalBlocks = wood.size() + leaves.size();
 			this.start = start;
 			this.sapling = world.getBlockState(start).getBlock();
 			while (!world.pairs.isEmpty()) {
@@ -316,6 +329,7 @@ public class TreesOfStages {
 					leaves.add(pair);
 				}
 			}
+			this.totalBlocks = wood.size() + leaves.size();
 			if (wood.isEmpty())
 				return;
 			wood.sort((p1, p2) -> {
