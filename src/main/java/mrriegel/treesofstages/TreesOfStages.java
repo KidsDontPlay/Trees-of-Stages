@@ -23,7 +23,6 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockSapling;
 import net.minecraft.block.IGrowable;
 import net.minecraft.block.SoundType;
 import net.minecraft.block.material.Material;
@@ -56,7 +55,7 @@ import net.minecraftforge.fml.common.gameevent.TickEvent.WorldTickEvent;
 @Mod(modid = TreesOfStages.MODID, name = TreesOfStages.MODNAME, version = TreesOfStages.VERSION, acceptedMinecraftVersions = "[1.12,1.13)", acceptableRemoteVersions = "*")
 public class TreesOfStages {
 	public static final String MODID = "treesofstages";
-	public static final String VERSION = "1.2.0";
+	public static final String VERSION = "1.3.0";
 	public static final String MODNAME = "Trees of Stages";
 
 	@Instance(TreesOfStages.MODID)
@@ -73,6 +72,8 @@ public class TreesOfStages {
 		growthSpeed = config.getInt("growthSpeed", Configuration.CATEGORY_GENERAL, 5, 1, 1000, "The lower the faster");
 		blacklistMods = new HashSet<>(Arrays.asList(config.getStringList("blacklistMods", Configuration.CATEGORY_GENERAL, new String[0], "Mod IDs from saplings that will grow instantaneously")));
 		sound = config.getBoolean("sound", Configuration.CATEGORY_GENERAL, true, "Enable sound when trees grow");
+		if (config.hasChanged())
+			config.save();
 	}
 
 	@EventHandler
@@ -96,7 +97,7 @@ public class TreesOfStages {
 						if (pair != null) {
 							IBlockState current = world.getBlockState(pair.getKey());
 							if (current.getBlock().isReplaceable(world, pair.getKey()) || //
-									((current.getBlock() instanceof BlockSapling || world.getBlockState(tree.start).getBlock().getClass().isAssignableFrom(current.getBlock().getClass())) && Math.sqrt(pair.getKey().distanceSq(tree.start)) <= 2.1) || //
+									(current.getMaterial() == Material.PLANTS && Math.sqrt(pair.getKey().distanceSq(tree.start)) <= 2.1) || //
 									current.getMaterial() == Material.LEAVES) {
 								world.setBlockState(pair.getKey(), pair.getValue());
 								TileEntity t = world.getTileEntity(pair.getKey());
@@ -104,10 +105,6 @@ public class TreesOfStages {
 									TileEntity pt = pw.getTileEntity(pair.getKey());
 									if (pt != null)
 										t.readFromNBT(pt.writeToNBT(new NBTTagCompound()));
-								}
-								if (sound) {
-									SoundType soundtype = pair.getValue().getBlock().getSoundType(pair.getValue(), world, pair.getKey(), null);
-									world.playSound(null, pair.getKey(), soundtype.getPlaceSound(), SoundCategory.BLOCKS, (soundtype.getVolume() + 1.0F) / 3.0F, soundtype.getPitch() * 0.8F);
 								}
 							} else
 								pair = tree.next();
@@ -138,19 +135,17 @@ public class TreesOfStages {
 
 	@SubscribeEvent
 	public void grow(WorldTickEvent event) {
-		if (event.phase == Phase.END && !event.world.isRemote) {
+		if (event.phase == Phase.END && !event.world.isRemote && event.world.getTotalWorldTime() % growthSpeed == 0) {
 			Iterator<Tree> it = pseudoWorldMap.get(event.world.provider.getDimension()).trees.iterator();
 			while (it.hasNext()) {
 				Tree tree = it.next();
-				if (event.world.getTotalWorldTime() % growthSpeed != 0)
-					continue;
 				boolean placed = false;
 				while (!placed) {
 					Pair<BlockPos, IBlockState> pair = tree.next();
 					if (pair != null) {
 						IBlockState current = event.world.getBlockState(pair.getKey());
 						if (current.getBlock().isReplaceable(event.world, pair.getKey()) || //
-								((current.getBlock() instanceof BlockSapling || event.world.getBlockState(tree.start).getBlock().getClass().isAssignableFrom(current.getBlock().getClass())) && Math.sqrt(pair.getKey().distanceSq(tree.start)) <= 2.1) || //
+								(current.getMaterial() == Material.PLANTS && Math.sqrt(pair.getKey().distanceSq(tree.start)) <= 2.1) || //
 								current.getMaterial() == Material.LEAVES) {
 							event.world.setBlockState(pair.getKey(), pair.getValue());
 							TileEntity t = event.world.getTileEntity(pair.getKey());
@@ -214,6 +209,10 @@ public class TreesOfStages {
 			if (run == null)
 				return;
 			PseudoWorld pw = pseudoWorldMap.get(event.getWorld().provider.getDimension());
+			if (pw.trees.stream().anyMatch(t -> t.start.equals(event.getPos()))) {
+				event.setResult(Result.DENY);
+				return;
+			}
 			IBlockState sapling = event.getWorld().getBlockState(event.getPos());
 			if (blacklistMods.contains(sapling.getBlock().getRegistryName().getResourcePath()))
 				return;
@@ -298,7 +297,7 @@ public class TreesOfStages {
 			final BlockPos pos2 = pos.toImmutable();
 			blockMap.put(pos2, newState);
 			setTileEntity(pos2, newState.getBlock().createTileEntity(this, newState));
-			if (safeTree && newState.getBlock() != Blocks.AIR && !pairs.stream().anyMatch(p -> p.getKey().equals(pos2))) {
+			if (safeTree && newState.getBlock() != Blocks.AIR) {
 				pairs.add(Pair.of(pos2, newState));
 			}
 			return true;
@@ -353,6 +352,7 @@ public class TreesOfStages {
 					foo = Double.compare(p1.getKey().distanceSq(start), p2.getKey().distanceSq(start));
 				return foo;
 			});
+			@SuppressWarnings("unused")
 			BlockPos firstWood = wood.get(wood.size() - 1).getKey();
 			BlockPos midWood = wood.get(MathHelper.clamp(wood.size() / 2, 0, wood.size() - 1)).getKey();
 			BlockPos foo = midWood;
